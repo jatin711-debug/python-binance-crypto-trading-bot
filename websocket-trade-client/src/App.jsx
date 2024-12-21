@@ -15,6 +15,7 @@ function App() {
 
     ws.onmessage = (event) => {
       const receivedData = JSON.parse(event.data);
+      console.log('Received data:', receivedData);
       setData(receivedData.data); // Assuming the format is {"data": [...]}
     };
 
