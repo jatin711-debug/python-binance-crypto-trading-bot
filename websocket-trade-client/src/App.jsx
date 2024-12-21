@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './App.css';
+import TradeTable from './TradeTable';
+import TradeChart from './TradeChart';
 
 function App() {
   const [data, setData] = useState([]);
@@ -13,14 +15,25 @@ function App() {
 
     ws.onmessage = (event) => {
       const receivedData = JSON.parse(event.data);
-      setData(receivedData.data); // assuming the format is {"data": [...]}
+      setData(receivedData.data); // Assuming the format is {"data": [...]}
     };
 
     ws.onclose = () => {
       console.log('Disconnected from WebSocket server');
     };
 
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    const keepAliveInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'keep-alive' }));
+      }
+    }, 30000); // Send a keep-alive message every 30 seconds
+
     return () => {
+      clearInterval(keepAliveInterval);
       ws.close();
     };
   }, []);
@@ -29,18 +42,8 @@ function App() {
     <div className="App">
       <header className="App-header">
         <h1>Trade Data</h1>
-        <ul>
-          {data.map((trade, index) => (
-            <li key={index}>
-              <p>Timestamp: {trade.timestamp}</p>
-              <p>Current Price: {trade.current_price}</p>
-              <p>LSTM Prediction: {trade.lstm_prediction}</p>
-              <p>RF Prediction: {trade.rf_prediction}</p>
-              <p>Ensemble Prediction: {trade.ensemble_prediction}</p>
-              <p>Action: {trade.action}</p>
-            </li>
-          ))}
-        </ul>
+        <TradeTable data={data} />
+        <TradeChart data={data} />
       </header>
     </div>
   );

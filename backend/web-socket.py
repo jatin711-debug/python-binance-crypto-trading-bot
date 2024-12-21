@@ -6,23 +6,28 @@ import aiohttp_cors
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+# Define paths
+script_directory = os.path.dirname(__file__)
+trades_json_path = os.path.join(script_directory, 'trades.json')
+
 class FileChangeHandler(FileSystemEventHandler):
-    def __init__(self, websocket):
+    def __init__(self, websocket, loop):
         self.websocket = websocket
+        self.loop = loop
 
     def on_modified(self, event):
-        if event.src_path == os.path.abspath("trades.json"):
-            asyncio.run_coroutine_threadsafe(self.send_new_data(), asyncio.get_event_loop())
+        if event.src_path == trades_json_path:
+            asyncio.run_coroutine_threadsafe(self.send_new_data(), self.loop)
 
     async def send_new_data(self):
-        with open("trades.json", "r") as f:
+        with open(trades_json_path, "r") as f:
             data = json.load(f)
-            await self.websocket.send(json.dumps(data))
+            await self.websocket.send_json(data)
 
 async def send_initial_data(websocket):
-    with open("trades.json", "r") as f:
+    with open(trades_json_path, "r") as f:
         data = json.load(f)
-        await websocket.send(json.dumps(data))
+        await websocket.send_json(data)
 
 async def handle_client(request):
     ws = web.WebSocketResponse()
@@ -31,9 +36,10 @@ async def handle_client(request):
     print(f"Client connected: {request.remote}")
     await send_initial_data(ws)
 
-    event_handler = FileChangeHandler(ws)
+    loop = asyncio.get_event_loop()
+    event_handler = FileChangeHandler(ws, loop)
     observer = Observer()
-    observer.schedule(event_handler, path='.', recursive=False)
+    observer.schedule(event_handler, path=script_directory, recursive=False)
     observer.start()
 
     try:

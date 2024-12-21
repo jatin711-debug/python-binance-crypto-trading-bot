@@ -35,6 +35,10 @@ STOP_LOSS = 0.02  # 2% Stop Loss
 TAKE_PROFIT = 0.05  # 5% Take Profit
 MAX_POSITION_SIZE = 0.1  # Maximum 10% of account balance per trade
 
+script_directory = os.path.dirname(__file__)
+trades_json_path = os.path.join(script_directory, 'trades.json')
+log_file_path = os.path.join(script_directory, 'trading_log.txt')
+
 def setup_logging():
     """Setup logging configuration."""
     logger = logging.getLogger('trading_bot')
@@ -42,7 +46,7 @@ def setup_logging():
     
     if not logger.handlers:
         # File handler for general logging
-        fh = logging.FileHandler('trading_log.txt')
+        fh = logging.FileHandler(log_file_path)
         fh.setLevel(logging.INFO)
         
         # Formatter
@@ -55,21 +59,21 @@ def setup_logging():
 
 def initialize_json_log():
     """Initialize the JSON log file with an empty 'data' key."""
-    with open('trades.json', 'w') as f:
+    with open(trades_json_path, 'w') as f:
         json.dump({"data": []}, f, indent=4)
 
 def log_trade_to_json(log_data):
     """Log trade data to JSON file."""
     try:
         # Read the existing data
-        with open('trades.json', 'r') as f:
+        with open(trades_json_path, 'r') as f:
             json_data = json.load(f)
 
         # Append new log data to the 'data' key
         json_data["data"].append(log_data)
 
         # Write the updated data back to the file
-        with open('trades.json', 'w') as f:
+        with open(trades_json_path, 'w') as f:
             json.dump(json_data, f, indent=4)
     except Exception as e:
         logging.error(f"Error logging trade to JSON: {e}")
