@@ -1,0 +1,6 @@
+binance
+tensorflow
+sklearn
+matplotlib
+pandas
+python-dotenv
