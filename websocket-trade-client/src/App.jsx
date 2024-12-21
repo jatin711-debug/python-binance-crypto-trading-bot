@@ -15,8 +15,7 @@ function App() {
 
     ws.onmessage = (event) => {
       const receivedData = JSON.parse(event.data);
-      console.log('Received data:', receivedData);
-      setData(receivedData.data); // Assuming the format is {"data": [...]}
+      setData(receivedData);
     };
 
     ws.onclose = () => {
@@ -44,7 +43,7 @@ function App() {
       <header className="App-header">
         <h1>Trade Data</h1>
         <TradeTable data={data} />
-        <TradeChart data={data} />
+        <TradeChart data={data.slice(0, 20)} />
       </header>
     </div>
   );

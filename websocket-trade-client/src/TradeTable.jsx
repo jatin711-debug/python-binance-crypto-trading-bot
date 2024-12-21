@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 
 const TradeTable = ({ data }) => {
-  // Sort data by timestamp in descending order
-  const sortedData = [...data].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  // Ensure data is an array before attempting to map over it
+  const sortedData = Array.isArray(data) ? [...data].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)) : [];
   const [visibleRows, setVisibleRows] = useState(10);
 
   const handleLoadMore = () => {

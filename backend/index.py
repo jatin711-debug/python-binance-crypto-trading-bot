@@ -387,7 +387,7 @@ async def main():
                     position_size = calculate_position_size(account_balance, current_price)
                     await place_order(symbol, action, position_size, current_price)
                 
-                await asyncio.sleep(10)
+                await asyncio.sleep(3)
                 
             except Exception as e:
                 logger.error(f"Error in trading loop: {e}")
