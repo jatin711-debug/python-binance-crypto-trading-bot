@@ -1,5 +1,6 @@
 import tensorflow as tf
 import os
+import sqlite3
 import pandas as pd
 import numpy as np
 import asyncio
@@ -13,6 +14,7 @@ from tensorflow.keras.optimizers import Adam
 from dotenv import load_dotenv
 import logging
 import time
+from db import init_db
 from datetime import datetime
 
 # Enable eager execution if not already enabled
@@ -22,6 +24,7 @@ if not tf.executing_eagerly():
 
 # Load environment variables
 load_dotenv()
+init_db()
 
 # Binance API credentials
 API_KEY = os.getenv('BINANCE_API_KEY')
@@ -38,6 +41,7 @@ MAX_POSITION_SIZE = 0.1  # Maximum 10% of account balance per trade
 script_directory = os.path.dirname(__file__)
 trades_json_path = os.path.join(script_directory, 'trades.json')
 log_file_path = os.path.join(script_directory, 'trading_log.txt')
+db_path = os.path.join(script_directory, 'trades.db')
 
 def setup_logging():
     """Setup logging configuration."""
@@ -85,6 +89,26 @@ def log_trade_to_text(log_data):
         logger.info(f"Trade Executed: {log_data}")
     except Exception as e:
         logging.error(f"Error logging trade to text: {e}")
+
+def log_trade_to_sqlite(log_data):
+    """Log trade data to SQLite database."""
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO trades (timestamp, current_price, lstm_prediction, 
+                                rf_prediction, ensemble_prediction, action)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            log_data['timestamp'], log_data['current_price'], 
+            log_data['lstm_prediction'], log_data['rf_prediction'], 
+            log_data['ensemble_prediction'], log_data['action']
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Error logging trade to SQLite: {e}")
+
 
 def get_klines(symbol, interval, lookback):
     """Wrapper function to fetch klines from Binance."""
@@ -354,6 +378,7 @@ async def main():
                     'ensemble_prediction': float(final_prediction),
                     'action': action
                 }
+                log_trade_to_sqlite(log_data)
                 log_trade_to_json(log_data)
                 log_trade_to_text(log_data)
                 

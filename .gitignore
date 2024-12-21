@@ -25,3 +25,5 @@ dist-ssr
 *.sln
 *.sw?
 trades.json
+__pycache__
+*.db
