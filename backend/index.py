@@ -8,9 +8,9 @@ import json
 from binance.client import Client
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import RandomForestRegressor
-from tensorflow.keras import Sequential, Input
-from tensorflow.keras.layers import Dense, LSTM, Dropout
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras import Sequential, Input # type: ignore
+from tensorflow.keras.layers import Dense, LSTM, Dropout # type: ignore
+from tensorflow.keras.optimizers import Adam # type: ignore
 from dotenv import load_dotenv
 import logging
 import time
@@ -109,16 +109,33 @@ def log_trade_to_sqlite(log_data):
     except Exception as e:
         logging.error(f"Error logging trade to SQLite: {e}")
 
+def fetch_data_in_batches(symbol, interval, batch_size, lookback):
+    data = []
+    end_time = int(time.time() * 1000)  # Convert to milliseconds
+    logger = logging.getLogger('trading_bot')
 
-def get_klines(symbol, interval, lookback):
-    """Wrapper function to fetch klines from Binance."""
-    return client.get_klines(symbol=symbol, interval=interval, limit=lookback)
+    for batch in range(batch_size):
+        start_time = end_time - (lookback * 60 * 1000)  # Convert lookback to milliseconds
+        try:
+            data_batch = client.get_klines(symbol=symbol, interval=interval, startTime=start_time, endTime=end_time)
+            if not data_batch:
+                logger.warning(f"No data received for batch {batch + 1}")
+                break
+            data.extend(data_batch)
+            logger.info(f"Batch {batch + 1}/{batch_size}: Fetched {len(data_batch)} records")
+            end_time = start_time
+            time.sleep(1)  # To avoid hitting API rate limits
+        except Exception as e:
+            logger.error(f"Error fetching batch {batch + 1}: {e}")
+            break
+
+    return data
 
 async def fetch_historical_data(symbol, interval, lookback):
     """Fetch historical data from Binance with error handling."""
     try:
         loop = asyncio.get_event_loop()
-        klines = await loop.run_in_executor(None, get_klines, symbol, interval, lookback)
+        klines = await loop.run_in_executor(None, fetch_data_in_batches, symbol, interval, 5, lookback)
         df = pd.DataFrame(klines, columns=['time', 'open', 'high', 'low', 'close', 'volume',
                                            'close_time', 'quote_asset_volume', 'trades',
                                            'taker_buy_base', 'taker_buy_quote', 'ignore'])
