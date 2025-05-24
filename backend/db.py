@@ -21,7 +21,8 @@ def init_db():
             lstm_prediction REAL,
             rf_prediction REAL,
             ensemble_prediction REAL,
-            action TEXT
+            action TEXT,
+            average_sentiment REAL 
         )
     ''')
     

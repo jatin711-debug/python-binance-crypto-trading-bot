@@ -12,6 +12,9 @@ from tensorflow.keras import Sequential, Input # type: ignore
 from tensorflow.keras.layers import Dense, LSTM, Dropout # type: ignore
 from tensorflow.keras.optimizers import Adam # type: ignore
 from dotenv import load_dotenv
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+import nltk
+from newsapi import NewsApiClient
 import logging
 import time
 from db import init_db
@@ -33,6 +36,11 @@ API_SECRET = os.getenv('BINANCE_API_SECRET')
 # Initialize Binance Client
 client = Client(API_KEY, API_SECRET)
 
+# NewsAPI Key
+NEWSAPI_KEY = os.getenv('NEWSAPI_KEY', 'YOUR_NEWSAPI_KEY_HERE')
+NEWS_SOURCES = 'bbc-news,reuters,bloomberg,cnbc'
+
+
 # Constants
 STOP_LOSS = 0.02  # 2% Stop Loss
 TAKE_PROFIT = 0.05  # 5% Take Profit
@@ -47,17 +55,23 @@ def setup_logging():
     """Setup logging configuration."""
     logger = logging.getLogger('trading_bot')
     logger.setLevel(logging.INFO)
-    
+
     if not logger.handlers:
         # File handler for general logging
         fh = logging.FileHandler(log_file_path)
         fh.setLevel(logging.INFO)
-        
+
         # Formatter
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         fh.setFormatter(formatter)
-        
+
         logger.addHandler(fh)
+
+    # Download VADER lexicon if not already downloaded
+    try:
+        nltk.data.find('sentiment/vader_lexicon.zip')
+    except nltk.downloader.DownloadError:
+        nltk.download('vader_lexicon')
     
     return logger
 
@@ -97,12 +111,13 @@ def log_trade_to_sqlite(log_data):
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO trades (timestamp, current_price, lstm_prediction, 
-                                rf_prediction, ensemble_prediction, action)
-            VALUES (?, ?, ?, ?, ?, ?)
+                                rf_prediction, ensemble_prediction, action, average_sentiment)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             log_data['timestamp'], log_data['current_price'], 
             log_data['lstm_prediction'], log_data['rf_prediction'], 
-            log_data['ensemble_prediction'], log_data['action']
+            log_data['ensemble_prediction'], log_data['action'],
+            log_data.get('average_sentiment', 0.0) # Use .get for robustness
         ))
         conn.commit()
         conn.close()
@@ -189,8 +204,8 @@ def calculate_technical_indicators(df, look_back=60):
         logging.error(f"Error calculating technical indicators: {e}")
         raise
 
-def prepare_features(df):
-    """Prepare feature set for models."""
+def prepare_features(df, avg_sentiment=0.0): # Added avg_sentiment with a default
+    """Prepare feature set for models, including sentiment score."""
     try:
         features = pd.DataFrame()
         
@@ -214,6 +229,10 @@ def prepare_features(df):
         features['high_low_ratio'] = df['high'] / df['low']
         features['close_to_high'] = df['close'] / df['high']
         features['close_to_low'] = df['close'] / df['low']
+
+        # Add sentiment score as a feature
+        # This will add the sentiment score as a constant column for the current feature set
+        features['sentiment_score'] = avg_sentiment
         
         return features.fillna(method='ffill')
     except Exception as e:
@@ -298,6 +317,43 @@ def calculate_position_size(account_balance, entry_price, stop_loss_percentage=S
         logging.error(f"Error calculating position size: {e}")
         raise
 
+def fetch_news_data(symbol):
+    """Fetch news data from NewsAPI."""
+    try:
+        newsapi = NewsApiClient(api_key=NEWSAPI_KEY)
+        # Extract base currency for keyword search (e.g., 'BTC' from 'BTCUSDT')
+        keyword = symbol.replace('USDT', '').replace('BUSD', '') # Basic symbol to keyword
+        headlines = newsapi.get_everything(
+            q=keyword,
+            sources=NEWS_SOURCES,
+            language='en',
+            sort_by='publishedAt',
+            page_size=20  # Fetch recent 20 articles
+        )
+        articles = [article['content'] for article in headlines.get('articles', []) if article['content']]
+        return articles
+    except Exception as e:
+        logging.error(f"Error fetching news data for {symbol}: {e}")
+        return []
+
+def analyze_sentiment(text):
+    """Analyze sentiment of the given text using VADER."""
+    analyzer = SentimentIntensityAnalyzer()
+    vs = analyzer.polarity_scores(text)
+    return vs['compound']
+
+def get_average_sentiment(symbol):
+    """Fetch news and calculate average sentiment for a symbol."""
+    articles = fetch_news_data(symbol)
+    if not articles:
+        return 0.0  # Neutral sentiment if no articles or error
+
+    total_sentiment = 0
+    for article_text in articles:
+        total_sentiment += analyze_sentiment(article_text)
+    
+    return total_sentiment / len(articles) if articles else 0.0
+
 async def place_order(symbol, side, quantity, price):
     """Place order on Binance (simulation)."""
     try:
@@ -332,7 +388,10 @@ async def main():
         # Fetch and process data once before the loop
         df = await fetch_historical_data(symbol, interval, lookback)
         df = calculate_technical_indicators(df, look_back)
-        features = prepare_features(df)
+        # Fetch initial sentiment to prepare features for the first training run
+        initial_avg_sentiment = get_average_sentiment(symbol)
+        logger.info(f"Initial average sentiment for {symbol}: {initial_avg_sentiment}")
+        features = prepare_features(df, initial_avg_sentiment)
         
         if len(features) < look_back:
             logger.warning("Insufficient data for analysis")
@@ -355,7 +414,12 @@ async def main():
                 # Fetch and process new data
                 df = await fetch_historical_data(symbol, interval, lookback)
                 df = calculate_technical_indicators(df, look_back)
-                features = prepare_features(df)
+                
+                # Get current sentiment score
+                avg_sentiment = get_average_sentiment(symbol)
+                logger.info(f"Average sentiment for {symbol}: {avg_sentiment}")
+                
+                features = prepare_features(df, avg_sentiment)
                 
                 if len(features) < look_back:
                     logger.warning("Insufficient data for analysis")
@@ -372,10 +436,11 @@ async def main():
                 
                 # Predict with Random Forest
                 rf_pred = rf_model.predict(X_rf[-1:])[-1]
-                
+
                 # Generate trading signals
                 current_price = df['close'].iloc[-1]
-                final_prediction = ensemble_predict(lstm_pred, rf_pred)
+                final_prediction = ensemble_predict(lstm_pred, rf_pred) # This is now the direct prediction
+                
                 price_change = (final_prediction - current_price) / current_price
                 
                 # Trading logic
@@ -392,10 +457,16 @@ async def main():
                     'current_price': float(current_price),
                     'lstm_prediction': float(lstm_pred),
                     'rf_prediction': float(rf_pred),
-                    'ensemble_prediction': float(final_prediction),
+                    'ensemble_prediction': float(final_prediction), # Prediction used for action
+                    'average_sentiment': float(avg_sentiment),     # Logged for observability
                     'action': action
                 }
-                log_trade_to_sqlite(log_data)
+                # Ensure log_trade_to_sqlite is updated if schema changed
+                # For now, assuming it can handle extra keys or they are ignored.
+                # If schema is strict, this might need adjustment or conditional logging.
+                # The previous version of log_trade_to_sqlite only inserted specific keys.
+                # Let's assume the dict is passed and the function handles what it needs.
+                log_trade_to_sqlite(log_data) 
                 log_trade_to_json(log_data)
                 log_trade_to_text(log_data)
                 
