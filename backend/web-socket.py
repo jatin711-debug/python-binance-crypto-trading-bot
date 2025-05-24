@@ -40,7 +40,8 @@ def get_trade_data_from_db(limit=None):
                 'lstm_prediction': trade[3],
                 'rf_prediction': trade[4],
                 'ensemble_prediction': trade[5],
-                'action': trade[6]
+                'action': trade[6],
+                'average_sentiment': trade[7] # Added average_sentiment
             })
         return trade_data
     except Exception as e:

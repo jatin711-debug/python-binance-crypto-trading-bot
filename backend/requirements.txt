@@ -1,6 +1,11 @@
-binance
+python-binance
 tensorflow
-sklearn
+scikit-learn
 matplotlib
 pandas
 python-dotenv
+vaderSentiment
+newsapi-python
+nltk
+aiohttp
+ccxt
